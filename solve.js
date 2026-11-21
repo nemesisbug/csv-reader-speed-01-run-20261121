@@ -17,11 +17,12 @@
 // - each error is {code, line, row}, in the order met; line the 1-based line its record starts on,
 //   counting every LF, CRLF and lone CR inside quotes, row its record's index in rows, null for the header.
 //
-// Speed: an unquoted field is found by two native indexOf scans (next comma, next LF) and taken as one
-// slice; a stray CR inside it is the rare slow path. A record with no quote and no stray CR at all is
-// taken as one slice and split(',') natively. A quoted field is found by indexOf('"') scans, its
-// segments sliced whole; only segments holding a CR or LF pay a conversion pass. Pure: no clock, no
-// randomness, no locale, nothing kept from one call to the next.
+// Speed: an unquoted field is found by one native indexOf scan (next comma) against the record's
+// next LF, carried along as nextLF instead of re-scanned per field, and taken as one slice; a stray
+// CR inside it is the rare slow path. A record with no quote and no stray CR at all is taken as one
+// slice and split(',') natively. A quoted field is found by indexOf('"') scans, its segments sliced
+// whole; only segments holding a CR or LF pay a conversion pass. Pure: no clock, no randomness, no
+// locale, nothing kept from one call to the next.
 
 const CR = 13; // '\r'
 const LF = 10; // '\n'
@@ -53,6 +54,13 @@ export function run(input) {
   // The record being read: the line it starts on and the index in rows it takes (null: the header).
   let recordLine = 1;
   let recordRow = null;
+
+  // The first LF at or after pos, kept valid at each field's start in the slow-path loop: the
+  // record's next LF, found once per record instead of once per unquoted field. It stays valid
+  // across an unquoted field that ends at a comma (the comma sits before it); after a quoted field
+  // it is re-found only when the field ran past it (a quoted field spanning line breaks). -1 when
+  // no LF is left in the text.
+  let nextLF = -1;
 
   // Line breaks inside the quoted field being read (added to line only when it closes; a quote that
   // never closes discards them, as csv-reader resets the line when it re-reads the field unquoted).
@@ -86,7 +94,7 @@ export function run(input) {
   function readUnquoted(value) {
     let added = 0;
     const c = text.indexOf(',', pos);
-    const l = text.indexOf('\n', pos);
+    const l = nextLF; // the record's next LF, carried along (see nextLF above)
     let m;
     let isLF;
     if (c === -1) {
@@ -184,6 +192,8 @@ export function run(input) {
       return { value, ended: ENDED_BREAK, added: 0 };
     }
     // What follows the closing quote is appended as it stands, up to the next comma or line break.
+    // The quoted field may have run past nextLF (line breaks inside it), so re-find it first.
+    if (nextLF !== -1 && pos > nextLF) nextLF = text.indexOf('\n', pos);
     const junk = readUnquoted(value);
     if (junk.added > 0) errors.push({ code: 'quote_junk', line: recordLine, row: recordRow });
     return junk;
@@ -243,6 +253,7 @@ export function run(input) {
       continue;
     }
 
+    nextLF = lf;
     const fields = [];
     let field;
     let quoted = false;
@@ -250,6 +261,10 @@ export function run(input) {
       quoted = text.charCodeAt(pos) === QUOTE;
       field = quoted ? readQuoted() : readUnquoted('');
       fields.push(field.value);
+      // A quoted field that ended at a comma may have run past nextLF (line breaks inside it).
+      if (quoted && field.ended === ENDED_COMMA && nextLF !== -1 && pos > nextLF) {
+        nextLF = text.indexOf('\n', pos);
+      }
     } while (field.ended === ENDED_COMMA);
     finishRecord(fields, quoted);
   }

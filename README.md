@@ -24,9 +24,11 @@ This one:
 
 Verified identical to csv-reader 1.0.0 on the kit's practice set (6/6 cases), on 36 cases
 drawn with the kit's own generator, and on 99 hand-written edge cases (BOM, CRLF, stray
-CRs, quote junk, unterminated quotes, short/long rows, empty inputs). On the practice set
-it runs in ~0.21 s of CPU against the reference's ~0.67 s (~3.2x), and the whole driver
-(`main.ts`, including JSON parse and output) in ~0.95 s against ~1.95 s (~2.0x).
+CRs, quote junk, unterminated quotes, short/long rows, empty inputs). On the practice set,
+interleaved 10-round runs, `run()` takes ~0.17 s of CPU against the reference's ~0.70 s
+(~4.1x), and the whole driver (`main.ts`, including JSON parse and output) ~0.95 s against
+~1.93 s (~2.0x). The driver also serializes one case at a time instead of one
+`JSON.stringify` over the whole 11 MB array (~99 ms vs ~135 ms, byte-identical output).
 
 ## Layout
 
